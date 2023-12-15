@@ -1516,9 +1516,12 @@ void CGameContext::OnClientEnter(int ClientID)
 	IServer::CClientInfo Info;
 	if(Server()->GetClientInfo(ClientID, &Info) && Info.m_GotDDNetVersion)
 	{
-		if(OnClientDDNetVersionKnown(ClientID))
-			return; // kicked
+		OnClientDDNetVersionKnown(ClientID);
 	}
+
+	// Kick client if they're using a version listed in sv_banned_versions.
+	if(CheckVersion(ClientID))
+		return;
 
 	if(!Server()->ClientPrevIngame(ClientID))
 	{
@@ -1738,7 +1741,7 @@ void CGameContext::TeehistorianRecordPlayerRejoin(int ClientID)
 	}
 }
 
-bool CGameContext::OnClientDDNetVersionKnown(int ClientID)
+void CGameContext::OnClientDDNetVersionKnown(int ClientID)
 {
 	IServer::CClientInfo Info;
 	dbg_assert(Server()->GetClientInfo(ClientID, &Info), "failed to get client info");
@@ -1755,13 +1758,6 @@ bool CGameContext::OnClientDDNetVersionKnown(int ClientID)
 		{
 			m_TeeHistorian.RecordDDNetVersionOld(ClientID, ClientVersion);
 		}
-	}
-
-	// Autoban known bot versions.
-	if(g_Config.m_SvBannedVersions[0] != '\0' && IsVersionBanned(ClientVersion))
-	{
-		Server()->Kick(ClientID, "unsupported client");
-		return true;
 	}
 
 	CPlayer *pPlayer = m_apPlayers[ClientID];
@@ -1784,8 +1780,6 @@ bool CGameContext::OnClientDDNetVersionKnown(int ClientID)
 	// Tell known bot clients that they're botting and we know it.
 	if(((ClientVersion >= 15 && ClientVersion < 100) || ClientVersion == 502) && g_Config.m_SvClientSuggestionBot[0] != '\0')
 		SendBroadcast(g_Config.m_SvClientSuggestionBot, ClientID);
-
-	return false;
 }
 
 void *CGameContext::PreProcessMsg(int *pMsgID, CUnpacker *pUnpacker, int ClientID)
@@ -2481,6 +2475,9 @@ void CGameContext::OnIsDDNetLegacyNetMessage(const CNetMsg_Cl_IsDDNetLegacy *pMs
 	}
 	Server()->SetClientDDNetVersion(ClientID, DDNetVersion);
 	OnClientDDNetVersionKnown(ClientID);
+
+	// Kick client if they're using a version listed in sv_banned_versions.
+	CheckVersion(ClientID);
 }
 
 void CGameContext::OnShowOthersLegacyNetMessage(const CNetMsg_Cl_ShowOthersLegacy *pMsg, int ClientID)
@@ -4478,6 +4475,18 @@ bool CGameContext::IsVersionBanned(int Version)
 	str_from_int(Version, aVersion);
 
 	return str_in_list(g_Config.m_SvBannedVersions, ",", aVersion);
+}
+
+bool CGameContext::CheckVersion(int ClientID)
+{
+	IServer::CClientInfo Info;
+	dbg_assert(Server()->GetClientInfo(ClientID, &Info), "failed to get client info");
+	if(g_Config.m_SvBannedVersions[0] != '\0' && IsVersionBanned(Info.m_GotDDNetVersion ? Info.m_DDNetVersion : -1))
+	{
+		Server()->Kick(ClientID, "unsupported client");
+		return true; // kicked
+	}
+	return false;
 }
 
 void CGameContext::List(int ClientID, const char *pFilter)

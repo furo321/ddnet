@@ -336,7 +336,7 @@ public:
 
 	// DDRace
 	void OnPreTickTeehistorian() override;
-	bool OnClientDDNetVersionKnown(int ClientID);
+	void OnClientDDNetVersionKnown(int ClientID);
 	void FillAntibot(CAntibotRoundData *pData) override;
 	bool ProcessSpamProtection(int ClientID, bool RespectChatInitialDelay = true);
 	int GetDDRaceTeam(int ClientID) const;
@@ -505,6 +505,7 @@ private:
 	void WhisperID(int ClientID, int VictimID, const char *pMessage);
 	void Converse(int ClientID, char *pStr);
 	bool IsVersionBanned(int Version);
+	bool CheckVersion(int ClientID);
 	void UnlockTeam(int ClientID, int Team) const;
 
 	enum
