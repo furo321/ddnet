@@ -4,6 +4,7 @@
 #include <engine/external/json-parser/json.h>
 #include <engine/shared/config.h>
 #include <engine/shared/json.h>
+#include <engine/shared/jsonwriter.h>
 #include <engine/shared/snapshot.h>
 #include <game/gamecore.h>
 
@@ -84,78 +85,69 @@ void CTeeHistorian::WriteHeader(const CGameInfo *pGameInfo)
 	sha256_str(pGameInfo->m_MapSha256, aMapSha256, sizeof(aMapSha256));
 
 	char aPrevGameUuid[UUID_MAXSTRSIZE];
-	char aPrevGameUuidJson[64];
+
+	CJsonStringWriter JsonWriter;
+	JsonWriter.BeginObject();
+
+	JsonWriter.WriteAttribute("comment");
+	JsonWriter.WriteStrValue(TEEHISTORIAN_NAME);
+
+	JsonWriter.WriteAttribute("version");
+	JsonWriter.WriteStrValue(TEEHISTORIAN_VERSION);
+
+	JsonWriter.WriteAttribute("version_minor");
+	JsonWriter.WriteStrValue(TEEHISTORIAN_VERSION_MINOR);
+
+	JsonWriter.WriteAttribute("game_uuid");
+	JsonWriter.WriteStrValue(aGameUuid);
+
 	if(pGameInfo->m_HavePrevGameUuid)
 	{
 		FormatUuid(pGameInfo->m_PrevGameUuid, aPrevGameUuid, sizeof(aPrevGameUuid));
-		str_format(aPrevGameUuidJson, sizeof(aPrevGameUuidJson), "\"prev_game_uuid\":\"%s\",", aPrevGameUuid);
-	}
-	else
-	{
-		aPrevGameUuidJson[0] = 0;
+		JsonWriter.WriteAttribute("prev_game_uuid");
+		JsonWriter.WriteStrValue(aPrevGameUuid);
 	}
 
-	char aCommentBuffer[128];
-	char aServerVersionBuffer[128];
-	char aStartTimeBuffer[128];
-	char aServerNameBuffer[128];
-	char aGameTypeBuffer[128];
-	char aMapNameBuffer[128];
-	char aMapSha256Buffer[256];
-	char aPrngDescription[128];
+	JsonWriter.WriteAttribute("server_version");
+	JsonWriter.WriteStrValue(pGameInfo->m_pServerVersion);
 
-	char aJson[2048];
+	JsonWriter.WriteAttribute("start_time");
+	JsonWriter.WriteStrValue(aStartTime);
 
-#define E(buf, str) EscapeJson(buf, sizeof(buf), str)
+	JsonWriter.WriteAttribute("server_name");
+	JsonWriter.WriteStrValue(pGameInfo->m_pServerName);
 
-	str_format(aJson, sizeof(aJson),
-		"{"
-		"\"comment\":\"%s\","
-		"\"version\":\"%s\","
-		"\"version_minor\":\"%s\","
-		"\"game_uuid\":\"%s\","
-		"%s"
-		"\"server_version\":\"%s\","
-		"\"start_time\":\"%s\","
-		"\"server_name\":\"%s\","
-		"\"server_port\":\"%d\","
-		"\"game_type\":\"%s\","
-		"\"map_name\":\"%s\","
-		"\"map_size\":\"%d\","
-		"\"map_sha256\":\"%s\","
-		"\"map_crc\":\"%08x\","
-		"\"prng_description\":\"%s\","
-		"\"config\":{",
-		E(aCommentBuffer, TEEHISTORIAN_NAME),
-		TEEHISTORIAN_VERSION,
-		TEEHISTORIAN_VERSION_MINOR,
-		aGameUuid,
-		aPrevGameUuidJson,
-		E(aServerVersionBuffer, pGameInfo->m_pServerVersion),
-		E(aStartTimeBuffer, aStartTime),
-		E(aServerNameBuffer, pGameInfo->m_pServerName),
-		pGameInfo->m_ServerPort,
-		E(aGameTypeBuffer, pGameInfo->m_pGameType),
-		E(aMapNameBuffer, pGameInfo->m_pMapName),
-		pGameInfo->m_MapSize,
-		E(aMapSha256Buffer, aMapSha256),
-		pGameInfo->m_MapCrc,
-		E(aPrngDescription, pGameInfo->m_pPrngDescription));
-	Write(aJson, str_length(aJson));
+	JsonWriter.WriteAttribute("server_port");
+	JsonWriter.WriteIntValue(pGameInfo->m_ServerPort);
 
-	char aBuffer1[1024];
-	char aBuffer2[1024];
-	bool First = true;
+	JsonWriter.WriteAttribute("game_type");
+	JsonWriter.WriteStrValue(pGameInfo->m_pGameType);
+
+	JsonWriter.WriteAttribute("map_name");
+	JsonWriter.WriteStrValue(pGameInfo->m_pMapName);
+
+	JsonWriter.WriteAttribute("map_size");
+	JsonWriter.WriteIntValue(pGameInfo->m_MapSize);
+
+	JsonWriter.WriteAttribute("map_sha256");
+	JsonWriter.WriteStrValue(aMapSha256);
+
+	char aMapCrc[256];
+	str_format(aMapCrc, sizeof(aMapCrc), "%08x", pGameInfo->m_MapCrc);
+	JsonWriter.WriteAttribute("map_crc");
+	JsonWriter.WriteStrValue(aMapCrc);
+
+	JsonWriter.WriteAttribute("prng_description");
+	JsonWriter.WriteStrValue(pGameInfo->m_pPrngDescription);
+
+	JsonWriter.WriteAttribute("config");
+	JsonWriter.BeginObject();
 
 #define MACRO_CONFIG_INT(Name, ScriptName, Def, Min, Max, Flags, Desc) \
 	if((Flags)&CFGFLAG_SERVER && !((Flags)&CFGFLAG_NONTEEHISTORIC) && pGameInfo->m_pConfig->m_##Name != (Def)) \
 	{ \
-		str_format(aJson, sizeof(aJson), "%s\"%s\":\"%d\"", \
-			First ? "" : ",", \
-			E(aBuffer1, #ScriptName), \
-			pGameInfo->m_pConfig->m_##Name); \
-		Write(aJson, str_length(aJson)); \
-		First = false; \
+		JsonWriter.WriteAttribute(#ScriptName); \
+		JsonWriter.WriteIntValue(pGameInfo->m_pConfig->m_##Name); \
 	}
 
 #define MACRO_CONFIG_COL(Name, ScriptName, Def, Flags, Desc) MACRO_CONFIG_INT(Name, ScriptName, Def, 0, 0, Flags, Desc)
@@ -163,12 +155,8 @@ void CTeeHistorian::WriteHeader(const CGameInfo *pGameInfo)
 #define MACRO_CONFIG_STR(Name, ScriptName, Len, Def, Flags, Desc) \
 	if((Flags)&CFGFLAG_SERVER && !((Flags)&CFGFLAG_NONTEEHISTORIC) && str_comp(pGameInfo->m_pConfig->m_##Name, (Def)) != 0) \
 	{ \
-		str_format(aJson, sizeof(aJson), "%s\"%s\":\"%s\"", \
-			First ? "" : ",", \
-			E(aBuffer1, #ScriptName), \
-			E(aBuffer2, pGameInfo->m_pConfig->m_##Name)); \
-		Write(aJson, str_length(aJson)); \
-		First = false; \
+		JsonWriter.WriteAttribute(#ScriptName); \
+		JsonWriter.WriteStrValue(pGameInfo->m_pConfig->m_##Name); \
 	}
 
 #include <engine/shared/config_variables.h>
@@ -177,38 +165,35 @@ void CTeeHistorian::WriteHeader(const CGameInfo *pGameInfo)
 #undef MACRO_CONFIG_COL
 #undef MACRO_CONFIG_STR
 
-	str_copy(aJson, "},\"tuning\":{");
-	Write(aJson, str_length(aJson));
+	JsonWriter.EndObject();
 
-	First = true;
+	JsonWriter.WriteAttribute("tuning");
+	JsonWriter.BeginObject();
 
 #define MACRO_TUNING_PARAM(Name, ScriptName, Value, Description) \
 	if(pGameInfo->m_pTuning->m_##Name.Get() != (int)((Value)*100)) \
 	{ \
-		str_format(aJson, sizeof(aJson), "%s\"%s\":\"%d\"", \
-			First ? "" : ",", \
-			E(aBuffer1, #ScriptName), \
-			pGameInfo->m_pTuning->m_##Name.Get()); \
-		Write(aJson, str_length(aJson)); \
-		First = false; \
+		JsonWriter.WriteAttribute(#ScriptName); \
+		JsonWriter.WriteIntValue(pGameInfo->m_pTuning->m_##Name.Get()); \
 	}
 #include <game/tuning.h>
 #undef MACRO_TUNING_PARAM
 
-	str_copy(aJson, "},\"uuids\":[");
-	Write(aJson, str_length(aJson));
+	JsonWriter.EndObject();
+
+	JsonWriter.WriteAttribute("uuids");
+	JsonWriter.BeginArray();
 
 	for(int i = 0; i < pGameInfo->m_pUuids->NumUuids(); i++)
 	{
-		str_format(aJson, sizeof(aJson), "%s\"%s\"",
-			i == 0 ? "" : ",",
-			E(aBuffer1, pGameInfo->m_pUuids->GetName(OFFSET_UUID + i)));
-		Write(aJson, str_length(aJson));
+		JsonWriter.WriteStrValue(pGameInfo->m_pUuids->GetName(OFFSET_UUID + i));
 	}
 
-	str_copy(aJson, "]}");
-	Write(aJson, str_length(aJson));
-	Write("", 1); // Null termination.
+	JsonWriter.EndArray();
+	JsonWriter.EndObject();
+
+	std::string OutputString = JsonWriter.GetOutputString();
+	Write(OutputString.c_str(), str_length(OutputString.c_str()));
 }
 
 void CTeeHistorian::WriteExtra(CUuid Uuid, const void *pData, int DataSize)

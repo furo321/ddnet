@@ -105,28 +105,79 @@ protected:
 	void Expect(const unsigned char *pOutput, size_t OutputSize)
 	{
 		static CUuid TEEHISTORIAN_UUID = CalculateUuid("teehistorian@ddnet.tw");
-		static const char PREFIX1[] = "{\"comment\":\"teehistorian@ddnet.tw\",\"version\":\"2\",\"version_minor\":\"8\",\"game_uuid\":\"a1eb7182-796e-3b3e-941d-38ca71b2a4a8\",\"server_version\":\"DDNet test\",\"start_time\":\"";
-		static const char PREFIX2[] = "\",\"server_name\":\"server name\",\"server_port\":\"8303\",\"game_type\":\"game type\",\"map_name\":\"Kobra 3 Solo\",\"map_size\":\"903514\",\"map_sha256\":\"0123456789012345678901234567890123456789012345678901234567890123\",\"map_crc\":\"eceaf25c\",\"prng_description\":\"test-prng:02468ace\",\"config\":{},\"tuning\":{},\"uuids\":[";
-		static const char PREFIX3[] = "]}";
+
+		std::vector<unsigned char> vBuffer;
+		WriteBuffer(vBuffer, &TEEHISTORIAN_UUID, sizeof(TEEHISTORIAN_UUID));
 
 		char aTimeBuf[64];
 		str_timestamp_ex(m_GameInfo.m_StartTime, aTimeBuf, sizeof(aTimeBuf), "%Y-%m-%dT%H:%M:%S%z");
 
-		std::vector<unsigned char> vBuffer;
-		WriteBuffer(vBuffer, &TEEHISTORIAN_UUID, sizeof(TEEHISTORIAN_UUID));
-		WriteBuffer(vBuffer, PREFIX1, str_length(PREFIX1));
-		WriteBuffer(vBuffer, aTimeBuf, str_length(aTimeBuf));
-		WriteBuffer(vBuffer, PREFIX2, str_length(PREFIX2));
+		CJsonStringWriter JsonWriter;
+		JsonWriter.BeginObject();
+
+		JsonWriter.WriteAttribute("comment");
+		JsonWriter.WriteStrValue("teehistorian@ddnet.tw");
+
+		JsonWriter.WriteAttribute("version");
+		JsonWriter.WriteStrValue("2");
+
+		JsonWriter.WriteAttribute("version_minor");
+		JsonWriter.WriteStrValue("8");
+
+		JsonWriter.WriteAttribute("game_uuid");
+		JsonWriter.WriteStrValue("a1eb7182-796e-3b3e-941d-38ca71b2a4a8");
+
+		JsonWriter.WriteAttribute("server_version");
+		JsonWriter.WriteStrValue("DDNet test");
+
+		JsonWriter.WriteAttribute("start_time");
+		JsonWriter.WriteStrValue(aTimeBuf);
+
+		JsonWriter.WriteAttribute("server_name");
+		JsonWriter.WriteStrValue("server name");
+
+		JsonWriter.WriteAttribute("server_port");
+		JsonWriter.WriteIntValue(8303);
+
+		JsonWriter.WriteAttribute("game_type");
+		JsonWriter.WriteStrValue("game type");
+
+		JsonWriter.WriteAttribute("map_name");
+		JsonWriter.WriteStrValue("Kobra 3 Solo");
+
+		JsonWriter.WriteAttribute("map_size");
+		JsonWriter.WriteIntValue(903514);
+
+		JsonWriter.WriteAttribute("map_sha256");
+		JsonWriter.WriteStrValue("0123456789012345678901234567890123456789012345678901234567890123");
+
+		JsonWriter.WriteAttribute("map_crc");
+		JsonWriter.WriteStrValue("eceaf25c");
+
+		JsonWriter.WriteAttribute("prng_description");
+		JsonWriter.WriteStrValue("test-prng:02468ace");
+
+		JsonWriter.WriteAttribute("config");
+		JsonWriter.BeginObject();
+		JsonWriter.EndObject();
+
+		JsonWriter.WriteAttribute("tuning");
+		JsonWriter.BeginObject();
+		JsonWriter.EndObject();
+
+		JsonWriter.WriteAttribute("uuids");
+		JsonWriter.BeginArray();
+
 		for(int i = 0; i < m_UuidManager.NumUuids(); i++)
 		{
-			char aBuf[64];
-			str_format(aBuf, sizeof(aBuf), "%s\"%s\"",
-				i == 0 ? "" : ",",
-				m_UuidManager.GetName(OFFSET_UUID + i));
-			WriteBuffer(vBuffer, aBuf, str_length(aBuf));
+			JsonWriter.WriteStrValue(m_UuidManager.GetName(OFFSET_UUID + i));
 		}
-		WriteBuffer(vBuffer, PREFIX3, str_length(PREFIX3));
-		WriteBuffer(vBuffer, "", 1);
+
+		JsonWriter.EndArray();
+		JsonWriter.EndObject();
+
+		std::string OutputString = JsonWriter.GetOutputString();
+		WriteBuffer(vBuffer, OutputString.c_str(), str_length(OutputString.c_str()));
 		WriteBuffer(vBuffer, pOutput, OutputSize);
 
 		ExpectFull(vBuffer.data(), vBuffer.size());
